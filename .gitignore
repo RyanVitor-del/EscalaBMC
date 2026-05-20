@@ -1,0 +1,38 @@
+# Build outputs
+bin/
+obj/
+dist/
+publish/
+pdf_exporter/
+
+# Local runtime data
+data/
+output/
+data_backup*/
+tmp_pdf_pages*/
+empty_manifests/
+
+# Python cache and packaging
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+env/
+*.spec
+
+# IDE/user files
+.vs/
+.vscode/
+*.user
+*.suo
+
+# Logs and archives
+*.log
+*.zip
+*.7z
+*.rar
+
+# OS files
+Thumbs.db
+Desktop.ini
