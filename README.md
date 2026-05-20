@@ -16,6 +16,26 @@ O projeto e uma aplicacao Windows Forms em C#/.NET 8, com exportador de PDF em P
 - Exportacao de PDF no layout operacional da unidade.
 - Build portavel para computadores sem Python.
 
+## Capturas de tela
+
+As imagens abaixo usam dados ficticios apenas para demonstracao.
+
+### Dashboard
+
+![Dashboard do EscalaBMC](docs/screenshots/dashboard.png)
+
+### Kanban de alas
+
+![Kanban de alas](docs/screenshots/kanban.png)
+
+### Escala do mes
+
+![Escala mensal](docs/screenshots/escala-mensal.png)
+
+### Observacoes e 2o esforco
+
+![Observacoes e escala de 2o esforco](docs/screenshots/observacoes-2-esforco.png)
+
 ## Privacidade dos dados
 
 Os arquivos de dados reais ficam em `data/` e os PDFs gerados em `output/`. Essas pastas estao ignoradas pelo Git para evitar publicar nomes, matriculas, ferias, afastamentos e escalas reais.
