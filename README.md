@@ -94,7 +94,3 @@ dist\EscalaBMC\EscalaBMC.exe --recalc-coverages 6 2026
 - `PythonPdfExporter.cs`: integracao do app C# com o exportador Python.
 - `python_pdf/`: fonte do gerador PDF.
 - `assets/`: icone e logo usados pelo app/PDF.
-
-## Observacao sobre publicacao
-
-Para publicar no GitHub, mantenha o repositorio privado se algum dado real for adicionado por engano. Por padrao, `data/`, `output/`, `dist/`, `bin/`, `obj/`, `publish/` e builds temporarias nao entram no Git.
