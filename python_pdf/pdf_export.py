@@ -108,6 +108,8 @@ def _cor_celula(valor: str, cor_estilo: str):
         return (COR_T, colors.white, True)
     if valor == "LN":
         return (COR_LN, colors.black, True)
+    if cor_estilo == "unidade_destino":
+        return (COR_REMANEJ_ALA, colors.white, True)
     if valor.endswith("ª Ala"):
         if cor_estilo == "ala_origem":
             return (COR_ALA_ORIGEM, colors.HexColor("#7B7B7B"), False)
@@ -412,17 +414,48 @@ def _parse_cbmmg(value: str) -> datetime | None:
         return None
 
 
+def _militares_com_composicoes_externas(todos_militares, composicoes, ala: int, mes: int, ano: int):
+    lista = list(todos_militares)
+    numeros = {m.numero for m in lista}
+    for comp in composicoes or []:
+        if getattr(comp, "papel_local", "").lower() != "destino" or getattr(comp, "ala", 0) != ala:
+            continue
+        dt = parse_data_br(getattr(comp, "data", ""))
+        if not dt or dt.month != mes or dt.year != ano:
+            continue
+        numero = getattr(comp, "militar_numero", "")
+        if not numero or numero in numeros:
+            continue
+        lista.append(Militar(
+            numero=numero,
+            posto=getattr(comp, "militar_posto", ""),
+            nome=getattr(comp, "militar_nome", ""),
+            categoria_cnh=getattr(comp, "militar_cnh", "-") or "-",
+            funcao=getattr(comp, "militar_funcao", ""),
+            secao="OPERACIONAL",
+            ala=0,
+            ordem=999,
+            observacoes=f"Origem: {getattr(comp, 'origem_nome', '')}",
+        ))
+        numeros.add(numero)
+    return lista
+
+
 # ----------------------- Tabela de uma ALA Operacional -----------------------
 def _tabela_ala(ala: AlaConfig, militares_ala: list[Militar],
                 todos_militares: list[Militar], mes: int, ano: int,
                 ala_obs: list[str] | None = None,
-                remanejamentos=None) -> list:
+                remanejamentos=None,
+                composicoes_unidade=None) -> list:
     ss = _styles()
     titulo_str = f"{ala.numero}ª ALA OPERACIONAL – {MESES_PT[mes].upper()} / {ano}"
     out = [Paragraph(f"<b><i>{titulo_str}</i></b>", ss["EBM_AlaTitulo"])]
 
+    todos_com_externos = _militares_com_composicoes_externas(
+        todos_militares, composicoes_unidade or [], ala.numero, mes, ano
+    )
     dias, grade = montar_grade_ala(
-        militares_ala, todos_militares, ala.numero, mes, ano, remanejamentos
+        militares_ala, todos_com_externos, ala.numero, mes, ano, remanejamentos, composicoes_unidade
     )
     n_dias = len(dias)
 
@@ -435,7 +468,7 @@ def _tabela_ala(ala: AlaConfig, militares_ala: list[Militar],
         + ["", ""]
     data = [linha0, linha1]
 
-    mapa_todos = {m.numero: m for m in todos_militares}
+    mapa_todos = {m.numero: m for m in todos_com_externos}
     numeros_ala = [m.numero for m in militares_ala]
     numeros_visitantes = [n for n in grade.keys() if n not in numeros_ala]
 
@@ -516,7 +549,7 @@ def _tabela_ala(ala: AlaConfig, militares_ala: list[Militar],
     out.append(t)
 
     out.append(Spacer(1, 4))
-    out.append(_resumo_e_legenda_ala(militares_ala, grade, dias, ala_obs, todos_militares))
+    out.append(_resumo_e_legenda_ala(militares_ala, grade, dias, ala_obs, todos_com_externos))
     out.append(Spacer(1, 6))
     return out
 
@@ -806,7 +839,8 @@ def gerar_pdf(
         ala_obs = escala.observacoes_alas.get(str(ala.numero), [])
         story.extend(_tabela_ala(ala, militares_ala, militares,
                                  escala.mes, escala.ano, ala_obs,
-                                 escala.remanejamentos))
+                                 escala.remanejamentos,
+                                 escala.composicoes_unidade))
         story.append(PageBreak())
 
     story.extend(_observacoes_finais(escala, militares))

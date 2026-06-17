@@ -2,7 +2,7 @@
 
 Sistema desktop para montagem, controle e exportacao de escala mensal de Bombeiros Militares.
 
-O projeto e uma aplicacao Windows Forms em C#/.NET 8, com exportador de PDF em Python empacotado junto na build final. A pasta publicada funciona sem Python instalado no computador de destino.
+O projeto e uma aplicacao Windows Forms em C#/.NET 8. O PDF e gerado pelo proprio app (C#/QuestPDF), usando exatamente a mesma logica da tela. A pasta publicada e self-contained: funciona em qualquer computador Windows sem instalar nada (nem .NET, nem Python).
 
 ## Funcionalidades
 
@@ -13,8 +13,8 @@ O projeto e uma aplicacao Windows Forms em C#/.NET 8, com exportador de PDF em P
 - Cobertura automatica de ausencias entre alas adjacentes.
 - Escala automatica de 2º esforco para ADM/GPV.
 - Observacoes gerais e por ala persistentes entre meses.
-- Exportacao de PDF no layout operacional da unidade.
-- Build portavel para computadores sem Python.
+- Exportacao de PDF no layout operacional da unidade (motor C#/QuestPDF, identico a tela).
+- Build portavel self-contained (nao requer .NET nem Python no destino).
 
 ## Capturas de tela
 
@@ -52,13 +52,9 @@ Nessa pasta ficam o executavel, os dados e os PDFs gerados.
 
 - Windows 10 ou superior.
 - .NET SDK 8.
-- Python 3.11 ou superior, apenas para recompilar o exportador PDF.
 
-Instale as dependencias Python:
-
-```bat
-py -m pip install -r requirements.txt
-```
+> O exportador PDF agora e 100% C# (QuestPDF). Nao e mais necessario Python.
+> As pastas `python_pdf/` e `pdf_exporter/` ficaram obsoletas e podem ser removidas.
 
 ## Executar em modo desenvolvimento
 
@@ -84,7 +80,7 @@ A build final sera publicada em:
 dist/EscalaBMC/EscalaBMC.exe
 ```
 
-O script tambem recompila o exportador Python em `pdf_exporter/` e o inclui na pasta publicada.
+O script preserva os dados (`data/`) e os PDFs (`output/`) ja existentes na pasta publicada.
 
 ## Gerar PDF via linha de comando
 
@@ -111,6 +107,6 @@ dist\EscalaBMC\EscalaBMC.exe --recalc-coverages 6 2026
 - `EscalaLogic.cs`: regras de escala, diagnostico, remanejamentos e coberturas.
 - `Models.cs`: modelos de dados serializados em JSON.
 - `Storage.cs`: persistencia local em `data/` e `output/`.
-- `PythonPdfExporter.cs`: integracao do app C# com o exportador Python.
-- `python_pdf/`: fonte do gerador PDF.
+- `PdfExport.cs`: gerador de PDF em C#/QuestPDF (motor unico, igual a tela).
+- `python_pdf/`, `pdf_exporter/`: gerador PDF antigo em Python (OBSOLETO, nao usado).
 - `assets/`: icone e logo usados pelo app/PDF.

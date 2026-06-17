@@ -1,58 +1,42 @@
 @echo off
+REM Build do EscalaBMC: publica um executavel self-contained (.NET 8) em dist\EscalaBMC.
+REM Nao precisa de Python: o PDF e gerado pelo proprio app (C#/QuestPDF).
+REM
+REM IMPORTANTE: a copia para dist NUNCA toca em data\ nem output\. O app e publicado em uma
+REM pasta temporaria e somente os arquivos do programa sao espelhados para dist, preservando
+REM integralmente os dados reais (militares, escalas, configuracoes) e os PDFs gerados.
 set MSBuildEnableWorkloadResolver=false
-if not exist "%~dp0python_pdf\pdf_export_cli.py" (
-  echo Exportador Python local nao encontrado em "%~dp0python_pdf".
-  exit /b 1
-)
-if not exist "%~dp0python_pdf\pdf_export.py" (
-  echo pdf_export.py local nao encontrado em "%~dp0python_pdf".
-  exit /b 1
-)
-if not exist "%~dp0python_pdf\escala_logic.py" (
-  echo escala_logic.py local nao encontrado em "%~dp0python_pdf".
-  exit /b 1
-)
-if not exist "%~dp0python_pdf\models.py" (
-  echo models.py local nao encontrado em "%~dp0python_pdf".
-  exit /b 1
-)
-echo Recompilando exportador Python...
-if exist "%~dp0pdf_exporter" rmdir /s /q "%~dp0pdf_exporter"
-python -m PyInstaller --noconfirm --clean --onedir --name EscalaPdfExporter --distpath "%~dp0obj\pyinstaller-pdf\dist" --workpath "%~dp0obj\pyinstaller-pdf\build" --specpath "%~dp0obj\pyinstaller-pdf\spec" --paths "%~dp0python_pdf" --add-data "%~dp0assets;assets" --collect-all reportlab "%~dp0python_pdf\pdf_export_cli.py"
-if errorlevel 1 exit /b %errorlevel%
-robocopy "%~dp0obj\pyinstaller-pdf\dist\EscalaPdfExporter" "%~dp0pdf_exporter" /MIR >nul
-if errorlevel 8 exit /b %errorlevel%
-for /f "delims=" %%v in ('"%~dp0pdf_exporter\EscalaPdfExporter.exe" --version') do echo %%v
 
 set "DIST_DIR=%~dp0dist\EscalaBMC"
-set "BACKUP_DIR=%TEMP%\EscalaBMC-build-backup-%RANDOM%-%RANDOM%"
-if exist "%DIST_DIR%\data" (
-  if not exist "%BACKUP_DIR%" mkdir "%BACKUP_DIR%"
-  robocopy "%DIST_DIR%\data" "%BACKUP_DIR%\data" /MIR >nul
-  if errorlevel 8 exit /b %errorlevel%
-)
-if exist "%DIST_DIR%\output" (
-  if not exist "%BACKUP_DIR%" mkdir "%BACKUP_DIR%"
-  robocopy "%DIST_DIR%\output" "%BACKUP_DIR%\output" /MIR >nul
-  if errorlevel 8 exit /b %errorlevel%
-)
+set "STAGE_DIR=%TEMP%\EscalaBMC-stage-%RANDOM%-%RANDOM%"
 
-if exist "%DIST_DIR%" rmdir /s /q "%DIST_DIR%"
-if exist "%DIST_DIR%" (
-  echo Nao foi possivel limpar a pasta dist\EscalaBMC. Feche o EscalaBMC aberto e rode novamente.
+echo Publicando o app...
+dotnet publish "%~dp0EscalaBMC.csproj" -c Release -r win-x64 --self-contained true -o "%STAGE_DIR%"
+if errorlevel 1 (
+  rmdir /s /q "%STAGE_DIR%" 2>nul
   exit /b 1
 )
-dotnet publish "%~dp0EscalaBMC.csproj" -c Release -r win-x64 --self-contained true -o "%DIST_DIR%"
-if errorlevel 1 exit /b %errorlevel%
-if exist "%BACKUP_DIR%\data" (
-  robocopy "%BACKUP_DIR%\data" "%DIST_DIR%\data" /MIR >nul
-  if errorlevel 8 exit /b %errorlevel%
+
+REM Espelha os arquivos do app para dist, EXCLUINDO as pastas data e output:
+REM   - nao copia o "data" semente do publish (preserva os dados reais do dist);
+REM   - nao apaga data\ nem output\ existentes no dist durante o /MIR.
+robocopy "%STAGE_DIR%" "%DIST_DIR%" /MIR /XD data output /NFL /NDL /NJH /NJS /NP >nul
+if errorlevel 8 (
+  echo.
+  echo ERRO ao copiar para dist\EscalaBMC. Feche o EscalaBMC se estiver aberto e rode novamente.
+  rmdir /s /q "%STAGE_DIR%" 2>nul
+  exit /b 1
 )
-if exist "%BACKUP_DIR%\output" (
-  robocopy "%BACKUP_DIR%\output" "%DIST_DIR%\output" /MIR >nul
-  if errorlevel 8 exit /b %errorlevel%
-)
-if exist "%BACKUP_DIR%" rmdir /s /q "%BACKUP_DIR%"
+
+REM Apenas em instalacao NOVA (dist ainda sem data): leva os dados semente do publish.
+if not exist "%DIST_DIR%\data" robocopy "%STAGE_DIR%\data" "%DIST_DIR%\data" /E /NFL /NDL /NJH /NJS /NP >nul
+
+REM GARANTIA: o gerador ANTIGO de tabela (Python/reportlab) nunca volta para o dist.
+REM O PDF e gerado SOMENTE pelo motor C#/QuestPDF (PdfExport.cs), compilado dentro do exe.
+if exist "%DIST_DIR%\pdf_exporter" rmdir /s /q "%DIST_DIR%\pdf_exporter"
+if exist "%DIST_DIR%\python_pdf" rmdir /s /q "%DIST_DIR%\python_pdf"
+
+rmdir /s /q "%STAGE_DIR%" 2>nul
 echo.
 echo Executavel publicado em:
 echo %DIST_DIR%\EscalaBMC.exe

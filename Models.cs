@@ -213,6 +213,18 @@ public sealed class UnidadeConfig
     public string Pelotao { get; set; } = "1º PELOTÃO";
 }
 
+public sealed class UnidadeCadastro
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("nome")]
+    public string Nome { get; set; } = "";
+
+    [JsonPropertyName("cidade")]
+    public string Cidade { get; set; } = "";
+}
+
 public sealed class EscalaMensal
 {
     [JsonPropertyName("mes")]
@@ -262,6 +274,9 @@ public sealed class EscalaMensal
 
     [JsonPropertyName("ocultacoes_ala")]
     public List<OcultacaoAla> OcultacoesAla { get; set; } = [];
+
+    [JsonPropertyName("composicoes_unidade")]
+    public List<ComposicaoUnidade> ComposicoesUnidade { get; set; } = [];
 }
 
 public sealed class CelulaManual
@@ -295,6 +310,51 @@ public sealed class OcultacaoAla
 
     [JsonPropertyName("militar_numero")]
     public string MilitarNumero { get; set; } = "";
+}
+
+public sealed class ComposicaoUnidade
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("papel_local")]
+    public string PapelLocal { get; set; } = "";
+
+    [JsonPropertyName("origem_unidade_id")]
+    public string OrigemUnidadeId { get; set; } = "";
+
+    [JsonPropertyName("origem_nome")]
+    public string OrigemNome { get; set; } = "";
+
+    [JsonPropertyName("destino_unidade_id")]
+    public string DestinoUnidadeId { get; set; } = "";
+
+    [JsonPropertyName("destino_nome")]
+    public string DestinoNome { get; set; } = "";
+
+    [JsonPropertyName("ala")]
+    public int Ala { get; set; }
+
+    [JsonPropertyName("data")]
+    public string Data { get; set; } = "";
+
+    [JsonPropertyName("militar_numero")]
+    public string MilitarNumero { get; set; } = "";
+
+    [JsonPropertyName("militar_posto")]
+    public string MilitarPosto { get; set; } = "";
+
+    [JsonPropertyName("militar_nome")]
+    public string MilitarNome { get; set; } = "";
+
+    [JsonPropertyName("militar_cnh")]
+    public string MilitarCnh { get; set; } = "-";
+
+    [JsonPropertyName("militar_funcao")]
+    public string MilitarFuncao { get; set; } = "";
+
+    [JsonPropertyName("motivo")]
+    public string Motivo { get; set; } = "";
 }
 
 public sealed class CelulaEscala

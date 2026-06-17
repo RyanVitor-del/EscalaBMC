@@ -188,6 +188,34 @@ public static class EscalaLogic
                 grade[ins.MilitarNumero] = dias.Select(_ => new CelulaEscala(rotulo, "ala_origem")).ToList();
             }
 
+            foreach (var composicao in escala.ComposicoesUnidade.Where(c => c.Ala == ala))
+            {
+                var dt = ParseDataBr(composicao.Data);
+                if (!dt.HasValue)
+                    continue;
+                var idx = dias.FindIndex(d => d.Date == dt.Value.Date);
+                if (idx < 0)
+                    continue;
+
+                if (string.Equals(composicao.PapelLocal, "origem", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (grade.TryGetValue(composicao.MilitarNumero, out var linhaOrigem))
+                        linhaOrigem[idx] = new CelulaEscala(SiglaUnidade(composicao.DestinoNome), "unidade_destino");
+                    continue;
+                }
+
+                if (!string.Equals(composicao.PapelLocal, "destino", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (!grade.TryGetValue(composicao.MilitarNumero, out var linhaDestino))
+                {
+                    var rotulo = SiglaUnidade(composicao.OrigemNome);
+                    linhaDestino = dias.Select(_ => new CelulaEscala(rotulo, "ala_origem")).ToList();
+                    grade[composicao.MilitarNumero] = linhaDestino;
+                }
+                linhaDestino[idx] = new CelulaEscala("S", "composicao_unidade");
+            }
+
             foreach (var cm in escala.CelulasManuais.Where(c => c.Ala == ala))
             {
                 var dt = ParseDataBr(cm.Data);
@@ -215,10 +243,24 @@ public static class EscalaLogic
         return (dias, grade);
     }
 
+    private static string SiglaUnidade(string nome)
+    {
+        if (string.IsNullOrWhiteSpace(nome))
+            return "EXT";
+        if (nome.Contains("Formiga", StringComparison.OrdinalIgnoreCase))
+            return "FOR";
+        if (nome.Contains("Arcos", StringComparison.OrdinalIgnoreCase))
+            return "ARC";
+
+        var letras = new string(nome.Where(char.IsLetterOrDigit).Take(3).ToArray());
+        return string.IsNullOrWhiteSpace(letras) ? "EXT" : letras.ToUpperInvariant();
+    }
+
     public static Dictionary<string, object> ResumirAla(
         IReadOnlyList<Militar> militaresAla,
         Dictionary<string, List<CelulaEscala>> grade,
-        IReadOnlyList<DateTime> dias)
+        IReadOnlyList<DateTime> dias,
+        IReadOnlyList<Militar>? todosMilitares = null)
     {
         var n = dias.Count;
         var total = new int[n];
@@ -227,7 +269,9 @@ public static class EscalaLogic
         var subtenSgt = new int[n];
         var cbSd = new int[n];
         var sd2Cl = new int[n];
-        var mapa = militaresAla.ToDictionary(m => m.Numero, m => m);
+        var mapa = (todosMilitares ?? militaresAla)
+            .GroupBy(m => m.Numero, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
         foreach (var (numero, linha) in grade)
         {
@@ -269,8 +313,8 @@ public static class EscalaLogic
             ["subten_sgt"] = subtenSgt,
             ["cb_sd"] = cbSd,
             ["sd_2cl"] = sd2Cl,
-            ["n_servico_op"] = militaresAla.Count(m => grade.TryGetValue(m.Numero, out var cells) && cells.Any(c => c.Valor == "S")),
-            ["n_motoristas_d"] = militaresAla.Count(m => m.EhMotoristaD && grade.TryGetValue(m.Numero, out var cells) && cells.Any(c => c.Valor == "S")),
+            ["n_servico_op"] = grade.Count(item => mapa.ContainsKey(item.Key) && item.Value.Any(c => c.Valor == "S")),
+            ["n_motoristas_d"] = grade.Count(item => mapa.TryGetValue(item.Key, out var m) && m.EhMotoristaD && item.Value.Any(c => c.Valor == "S")),
         };
     }
 

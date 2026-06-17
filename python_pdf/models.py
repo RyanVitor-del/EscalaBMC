@@ -202,6 +202,31 @@ class OcultacaoAla:
 
 
 @dataclass
+class ComposicaoUnidade:
+    id: str = ""
+    papel_local: str = ""
+    origem_unidade_id: str = ""
+    origem_nome: str = ""
+    destino_unidade_id: str = ""
+    destino_nome: str = ""
+    ala: int = 0
+    data: str = ""
+    militar_numero: str = ""
+    militar_posto: str = ""
+    militar_nome: str = ""
+    militar_cnh: str = "-"
+    militar_funcao: str = ""
+    motivo: str = ""
+
+    def to_dict(self):
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d):
+        return cls(**d)
+
+
+@dataclass
 class EscalaMensal:
     """Escala mensal completa."""
     mes: int
@@ -222,6 +247,7 @@ class EscalaMensal:
     celulas_manuais: list = field(default_factory=list)
     insercoes_ala: list = field(default_factory=list)
     ocultacoes_ala: list = field(default_factory=list)
+    composicoes_unidade: list = field(default_factory=list)
 
     def to_dict(self):
         return asdict(self)
@@ -251,6 +277,10 @@ class EscalaMensal:
         d["ocultacoes_ala"] = [
             OcultacaoAla.from_dict(item) if isinstance(item, dict) else item
             for item in d.get("ocultacoes_ala", [])
+        ]
+        d["composicoes_unidade"] = [
+            ComposicaoUnidade.from_dict(item) if isinstance(item, dict) else item
+            for item in d.get("composicoes_unidade", [])
         ]
         return cls(**d)
 

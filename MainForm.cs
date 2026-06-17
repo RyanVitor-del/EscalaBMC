@@ -28,6 +28,7 @@ public sealed class MainForm : Form
     private List<AlaConfig> _alas = [];
     private EscalaMensal? _escalaAtual;
 
+    private ComboBox _cmbUnidade = null!;
     private ComboBox _cmbMes = null!;
     private ComboBox _cmbAno = null!;
     private Label _status = null!;
@@ -58,6 +59,9 @@ public sealed class MainForm : Form
     private CheckedListBox _lbSecoes = null!;
     private ListBox _lbFuncoes = null!;
     private bool _recarregandoConfig;
+    private bool _recarregandoUnidades;
+    private CheckBox _chkArcosCompoeFormiga = null!;
+    private CheckBox _chkFormigaCompoeArcos = null!;
 
     public MainForm()
     {
@@ -74,6 +78,7 @@ public sealed class MainForm : Form
         _alas = Storage.LoadAlas();
 
         BuildUi();
+        RefreshUnidadesCombo();
 
         _cmbMes.SelectedItem = DateTime.Today.Month;
         _cmbAno.SelectedItem = DateTime.Today.Year;
@@ -94,11 +99,12 @@ public sealed class MainForm : Form
             Dock = DockStyle.Top,
             Height = 64,
             BackColor = CorPrimaria,
-            ColumnCount = 3,
+            ColumnCount = 4,
             RowCount = 1,
             Padding = new Padding(12, 0, 10, 0),
         };
         top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        top.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 430));
         top.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 290));
         top.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 340));
 
@@ -123,6 +129,25 @@ public sealed class MainForm : Form
         brand.Controls.Add(subtitle);
         top.Controls.Add(brand, 0, 0);
 
+        var unitPanel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            BackColor = Color.Transparent,
+            Padding = new Padding(0, 16, 0, 0),
+        };
+        unitPanel.Controls.Add(new Label { Text = "Unidade:", ForeColor = Color.White, AutoSize = true, Padding = new Padding(0, 7, 0, 0) });
+        _cmbUnidade = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200, Height = 28 };
+        _cmbUnidade.SelectedIndexChanged += (_, _) => AlternarUnidadeSelecionada();
+        unitPanel.Controls.Add(_cmbUnidade);
+        var btnNovaUnidade = SmallTopButton("+ Nova", NovaUnidade);
+        unitPanel.Controls.Add(btnNovaUnidade);
+        var btnEditarUnidade = SmallTopButton("Editar", EditarUnidade);
+        btnEditarUnidade.Width = 66;
+        unitPanel.Controls.Add(btnEditarUnidade);
+        top.Controls.Add(unitPanel, 1, 0);
+
         var center = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -141,7 +166,7 @@ public sealed class MainForm : Form
         _cmbAno.Items.AddRange(Enumerable.Range(2024, 11).Cast<object>().ToArray());
         _cmbAno.SelectedIndexChanged += (_, _) => LoadEscalaPeriodo();
         center.Controls.Add(_cmbAno);
-        top.Controls.Add(center, 1, 0);
+        top.Controls.Add(center, 2, 0);
 
         var rightActions = new FlowLayoutPanel
         {
@@ -157,7 +182,7 @@ public sealed class MainForm : Form
         btnSave.Width = 132;
         rightActions.Controls.Add(btnPdf);
         rightActions.Controls.Add(btnSave);
-        top.Controls.Add(rightActions, 2, 0);
+        top.Controls.Add(rightActions, 3, 0);
 
         return top;
     }
@@ -250,7 +275,8 @@ public sealed class MainForm : Form
 
         var actions = ToolbarPanel();
         actions.Dock = DockStyle.Fill;
-        actions.Controls.Add(PrimaryButton("Gerar escala do mês", GerarEscalaAssistente, 190));
+        actions.Controls.Add(PrimaryButton("Gerar escala (todas as unidades)", GerarEscalaTodasUnidades, 240));
+        actions.Controls.Add(SecondaryButton("Gerar escala (só esta unidade)", GerarEscalaAssistente, 220));
         actions.Controls.Add(SecondaryButton("Reequilibrar Motoristas D", RebalancearD, 210));
         actions.Controls.Add(SecondaryButton("Diagnóstico completo", () => { _tabs.SelectedIndex = 7; ExecutarDiagnostico(); }, 190));
         actions.Controls.Add(SecondaryButton("Ver Kanban de Alas", () => _tabs.SelectedIndex = 2, 180));
@@ -518,9 +544,10 @@ public sealed class MainForm : Form
 
         var toolbar = ToolbarPanel();
         toolbar.Dock = DockStyle.Fill;
-        toolbar.Controls.Add(PrimaryButton("Gerar escala assistida", GerarEscalaAssistente, 190));
+        toolbar.Controls.Add(PrimaryButton("Gerar escala (todas as unidades)", GerarEscalaTodasUnidades, 240));
+        toolbar.Controls.Add(SecondaryButton("Gerar escala (só esta unidade)", GerarEscalaAssistente, 220));
         toolbar.Controls.Add(SecondaryButton("Atualizar visualização", RefreshEscalaView, 190));
-        toolbar.Controls.Add(SecondaryButton("Desfazer coberturas", DesfazerCoberturasAutomaticas, 180));
+        toolbar.Controls.Add(SecondaryButton("Desfazer automáticos", DesfazerCoberturasAutomaticas, 180));
         toolbar.Controls.Add(SecondaryButton("Gerar PDF da Escala", GerarPdf, 180));
         toolbar.Controls.Add(SecondaryButton("Inserir militar na ala...", InserirMilitarNaAlaAtual, 200));
         toolbar.Controls.Add(SecondaryButton("Limpar edições manuais", LimparEdicoesManuaisAla, 190));
@@ -932,12 +959,106 @@ public sealed class MainForm : Form
         return tab;
     }
 
+    private void RefreshUnidadesCombo()
+    {
+        if (_cmbUnidade is null)
+            return;
+
+        var selectedId = Storage.CurrentUnidadeId;
+        _recarregandoUnidades = true;
+        _cmbUnidade.Items.Clear();
+        foreach (var unidade in Storage.LoadUnidades())
+            _cmbUnidade.Items.Add(new UnidadeComboItem(unidade.Id, UnidadeLabel(unidade)));
+
+        foreach (var item in _cmbUnidade.Items.OfType<UnidadeComboItem>())
+        {
+            if (string.Equals(item.Id, selectedId, StringComparison.OrdinalIgnoreCase))
+            {
+                _cmbUnidade.SelectedItem = item;
+                break;
+            }
+        }
+
+        if (_cmbUnidade.SelectedIndex < 0 && _cmbUnidade.Items.Count > 0)
+            _cmbUnidade.SelectedIndex = 0;
+        _recarregandoUnidades = false;
+    }
+
+    private void NovaUnidade()
+    {
+        using var dlg = new UnidadeDialog();
+        if (dlg.ShowDialog(this) != DialogResult.OK || dlg.Unidade is null)
+            return;
+
+        SalvarEstadoAtualSilencioso();
+        var unidade = Storage.AddUnidade(dlg.Unidade.Nome, dlg.Unidade.Cidade);
+        Storage.SetCurrentUnidade(unidade.Id);
+        RecarregarDadosUnidadeAtual();
+        RefreshUnidadesCombo();
+        LoadEscalaPeriodo();
+        Status($"Unidade ativa: {UnidadeLabel(unidade)}");
+    }
+
+    private void EditarUnidade()
+    {
+        var unidadeAtual = Storage.GetCurrentUnidade();
+        using var dlg = new UnidadeDialog(unidadeAtual);
+        if (dlg.ShowDialog(this) != DialogResult.OK || dlg.Unidade is null)
+            return;
+
+        Storage.UpdateCurrentUnidade(dlg.Unidade.Nome, dlg.Unidade.Cidade);
+        if (_escalaAtual is not null)
+        {
+            _escalaAtual.Unidade = dlg.Unidade.Nome;
+            _escalaAtual.Cidade = dlg.Unidade.Cidade;
+            Storage.SaveEscala(_escalaAtual);
+        }
+
+        RefreshUnidadesCombo();
+        LoadEscalaIntoControls();
+        Status($"Unidade atualizada: {dlg.Unidade.Cidade}");
+    }
+
+    private void AlternarUnidadeSelecionada()
+    {
+        if (_recarregandoUnidades || _cmbUnidade.SelectedItem is not UnidadeComboItem unidade)
+            return;
+        if (string.Equals(unidade.Id, Storage.CurrentUnidadeId, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        SalvarEstadoAtualSilencioso();
+        if (!Storage.SetCurrentUnidade(unidade.Id))
+            return;
+
+        RecarregarDadosUnidadeAtual();
+        RefreshUnidadesCombo();
+        LoadEscalaPeriodo();
+        Status($"Unidade ativa: {unidade.Label}");
+    }
+
+    private void RecarregarDadosUnidadeAtual()
+    {
+        _militares = Storage.LoadMilitares();
+        _alas = Storage.LoadAlas();
+        if (_lbSecoes is not null && _lbFuncoes is not null)
+            RecarregarListasConfig();
+    }
+
+    private static string UnidadeLabel(UnidadeCadastro unidade)
+    {
+        if (string.IsNullOrWhiteSpace(unidade.Cidade))
+            return unidade.Nome;
+        if (string.IsNullOrWhiteSpace(unidade.Nome))
+            return unidade.Cidade;
+        return $"{unidade.Cidade} - {unidade.Nome}";
+    }
+
     private void LoadEscalaPeriodo()
     {
         if (_cmbMes.SelectedItem is not int mes || _cmbAno.SelectedItem is not int ano)
             return;
 
-        _escalaAtual = Storage.LoadEscala(mes, ano) ?? new EscalaMensal { Mes = mes, Ano = ano };
+        _escalaAtual = Storage.LoadEscala(mes, ano) ?? Storage.NewEscala(mes, ano);
         Storage.HerdarObservacoesDoMesAnterior(_escalaAtual);
         AtualizarEscala2EsforcoAoCarregar();
         Storage.SaveEscala(_escalaAtual);
@@ -1166,7 +1287,8 @@ public sealed class MainForm : Form
                 .OrderBy(m => m.ChaveAntiguidade.Posto)
                 .ThenBy(m => m.ChaveAntiguidade.Ordem)
                 .ToList();
-            var (dias, grade) = EscalaLogic.MontarGradeAla(militaresAla, _militares, ala, mes, ano, _escalaAtual);
+            var militaresComExternos = MilitaresComComposicoesExternas(_militares, _escalaAtual, ala, mes, ano);
+            var (dias, grade) = EscalaLogic.MontarGradeAla(militaresAla, militaresComExternos, ala, mes, ano, _escalaAtual);
             foreach (var dia in dias)
                 grid.Columns.Add($"d{dia:ddMMyyyy}", $"{EscalaLogic.NomeDiaSemana(dia)}\n{dia.Day}/{EscalaLogic.MesAbrev[dia.Month].ToLowerInvariant()}.");
             grid.Columns.Add("funcao", "FUNÇÃO");
@@ -1174,7 +1296,9 @@ public sealed class MainForm : Form
             grid.Columns["funcao"]!.Width = 150;
             grid.Columns["obs"]!.Width = 240;
 
-            var mapa = _militares.ToDictionary(m => m.Numero, m => m);
+            var mapa = militaresComExternos
+                .GroupBy(m => m.Numero, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
             var titulares = militaresAla.Select(m => m.Numero).ToHashSet();
             var visitantes = grade.Keys.Where(n => !titulares.Contains(n) && mapa.ContainsKey(n)).Select(n => mapa[n]);
             var linhas = militaresAla.Concat(visitantes).ToList();
@@ -1225,6 +1349,45 @@ public sealed class MainForm : Form
             var row = _gridEsforco.Rows.Add(nome, de ?? "", ate ?? "");
             _gridEsforco.Rows[row].Tag = item;
         }
+    }
+
+    private static List<Militar> MilitaresComComposicoesExternas(
+        IEnumerable<Militar> militares,
+        EscalaMensal? escala,
+        int ala,
+        int mes,
+        int ano)
+    {
+        var lista = militares.ToList();
+        if (escala is null)
+            return lista;
+
+        foreach (var composicao in escala.ComposicoesUnidade)
+        {
+            if (!string.Equals(composicao.PapelLocal, "destino", StringComparison.OrdinalIgnoreCase) || composicao.Ala != ala)
+                continue;
+
+            var dt = EscalaLogic.ParseDataBr(composicao.Data);
+            if (!dt.HasValue || dt.Value.Month != mes || dt.Value.Year != ano)
+                continue;
+            if (lista.Any(m => string.Equals(m.Numero, composicao.MilitarNumero, StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            lista.Add(new Militar
+            {
+                Numero = composicao.MilitarNumero,
+                Posto = composicao.MilitarPosto,
+                Nome = composicao.MilitarNome,
+                CategoriaCnh = string.IsNullOrWhiteSpace(composicao.MilitarCnh) ? "-" : composicao.MilitarCnh,
+                Funcao = composicao.MilitarFuncao,
+                Secao = "OPERACIONAL",
+                Ala = 0,
+                Ordem = 999,
+                Observacoes = $"Origem: {composicao.OrigemNome}",
+            });
+        }
+
+        return lista;
     }
 
     private void AtualizarEscala2EsforcoAoCarregar()
@@ -2079,7 +2242,9 @@ public sealed class MainForm : Form
         _escalaAtual.DataHomologacao = _txtDataHomologacao.Text.Trim();
         _escalaAtual.CmtPelNumero = (_cmbCmtPel.SelectedItem as MilitarComboItem)?.Numero ?? "";
         _escalaAtual.CmtCiaNumero = (_cmbCmtCia.SelectedItem as MilitarComboItem)?.Numero ?? "";
+        Storage.UpdateCurrentUnidade(_escalaAtual.Unidade, _escalaAtual.Cidade);
         Storage.SaveEscala(_escalaAtual);
+        RefreshUnidadesCombo();
         Status("Unidade salva.");
     }
 
@@ -2185,19 +2350,415 @@ public sealed class MainForm : Form
             return;
 
         if (MessageBox.Show(this,
-                "Desfazer todas as coberturas automáticas deste mês?\n\nRemanejamentos manuais serão mantidos.",
-                "Desfazer coberturas",
+                "Desfazer tudo que foi gerado automaticamente neste mês?\n\n" +
+                "Serão removidas as coberturas automáticas e as composições entre unidades.\n" +
+                "Remanejamentos e edições manuais serão mantidos.",
+                "Desfazer automáticos",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question) != DialogResult.Yes)
             return;
 
         var removidas = EscalaLogic.DesfazerCoberturasAutomaticas(_militares, _escalaAtual, mes, ano);
+        // Remove as composições da unidade atual em memória e das demais unidades em disco,
+        // para não regravar registros antigos ao salvar a escala atual logo abaixo.
+        var composicoes = RemoverComposicoesDoMes(_escalaAtual, mes, ano);
+        composicoes += PurgarComposicoesMes(mes, ano, exceto: Storage.CurrentUnidadeId);
         Storage.SaveMilitares(_militares);
         Storage.SaveEscala(_escalaAtual);
+        LoadEscalaPeriodo();
         RefreshAll();
-        MessageBox.Show(this, $"{removidas} registro(s) automático(s) removido(s).", "Coberturas desfeitas", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        MessageBox.Show(this,
+            $"{removidas} cobertura(s) automática(s) e {composicoes} composição(ões) entre unidades removida(s).",
+            "Desfeito", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
+    private static IEnumerable<string> UnidadeIdsConhecidas() =>
+        Storage.LoadUnidades()
+            .Select(u => u.Id)
+            .Append(Storage.CurrentUnidadeId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+    // Remove as composições entre unidades do mês indicado, percorrendo todas as unidades.
+    // Use 'exceto' para pular a unidade cuja escala já está carregada em memória.
+    private static int PurgarComposicoesMes(int mes, int ano, string? exceto = null)
+    {
+        var total = 0;
+        foreach (var unidadeId in UnidadeIdsConhecidas())
+        {
+            if (exceto is not null && string.Equals(unidadeId, exceto, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var escala = Storage.LoadEscala(unidadeId, mes, ano);
+            if (escala is null)
+                continue;
+
+            var removidas = RemoverComposicoesDoMes(escala, mes, ano);
+            if (removidas > 0)
+            {
+                Storage.SaveEscala(unidadeId, escala);
+                total += removidas;
+            }
+        }
+
+        return total;
+    }
+
+    private static int RemoverComposicoesDoMes(EscalaMensal escala, int mes, int ano) =>
+        escala.ComposicoesUnidade.RemoveAll(c =>
+        {
+            var data = EscalaLogic.ParseDataBr(c.Data);
+            return data is null || (data.Value.Month == mes && data.Value.Year == ano);
+        });
+
+    private static List<SugestaoComposicaoUnidade> ObterSugestoesComposicaoUnidades(int mes, int ano)
+    {
+        var sugestoes = new List<SugestaoComposicaoUnidade>();
+        if (Storage.LoadAppFlag("composicao_arcos_formiga"))
+            sugestoes.AddRange(GerarSugestoesComposicao("arcos", "formiga", mes, ano));
+        if (Storage.LoadAppFlag("composicao_formiga_arcos"))
+            sugestoes.AddRange(GerarSugestoesComposicao("formiga", "arcos", mes, ano));
+        return sugestoes.OrderBy(s => s.Data).ThenBy(s => s.DestinoNome).ThenBy(s => s.Ala).ToList();
+    }
+
+    private static List<SugestaoComposicaoUnidade> GerarSugestoesComposicao(string origemId, string destinoId, int mes, int ano)
+    {
+        var origem = Storage.GetUnidade(origemId);
+        var destino = Storage.GetUnidade(destinoId);
+        if (origem is null || destino is null)
+            return [];
+
+        var minimoOrigem = MinimoEfetivoComposicao(origemId);
+        var minimoDestino = MinimoEfetivoComposicao(destinoId);
+        if (minimoOrigem <= 0 || minimoDestino <= 0)
+            return [];
+
+        var origemMilitares = Storage.LoadMilitares(origemId);
+        var destinoMilitares = Storage.LoadMilitares(destinoId);
+        var origemEscala = Storage.LoadEscala(origemId, mes, ano) ?? Storage.NewEscala(origemId, mes, ano);
+        var destinoEscala = Storage.LoadEscala(destinoId, mes, ano) ?? Storage.NewEscala(destinoId, mes, ano);
+        // Recalcular do zero: ignora composições já gravadas deste mês ao montar as sugestões.
+        // Faz apenas em memória — o expurgo em disco só ocorre quando o usuário confirma a aplicação.
+        RemoverComposicoesDoMes(origemEscala, mes, ano);
+        RemoverComposicoesDoMes(destinoEscala, mes, ano);
+        var sugestoes = new List<SugestaoComposicaoUnidade>();
+        var usados = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Proteção anti-dobra: cada militar cedido só pode entrar em UMA ala da unidade de
+        // destino durante o mês. Como as alas servem em dias consecutivos no ciclo 24x72,
+        // permitir o mesmo militar em duas alas faz ele dobrar serviço.
+        var alaDestinoPorMilitar = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var dia in Enumerable.Range(1, DateTime.DaysInMonth(ano, mes)).Select(d => new DateTime(ano, mes, d)))
+        {
+            var ala = EscalaLogic.AlaDoDia(dia);
+            while (true)
+            {
+                var destinoAtivos = ContarAtivosComposicao(destinoMilitares, destinoEscala, ala, dia, destinoId, sugestoes);
+                var precisaMotorista = destinoAtivos.MotoristasD == 0;
+                if (destinoAtivos.Total >= minimoDestino && !precisaMotorista)
+                    break;
+
+                var origemAtivos = ContarAtivosComposicao(origemMilitares, origemEscala, ala, dia, origemId, sugestoes);
+                var candidatosOrigem = CandidatosComposicao(origemMilitares, origemEscala, ala, dia)
+                    .Where(m => !usados.Contains(ChaveUsoComposicao(origemId, m.Numero, dia)))
+                    .Where(m => !alaDestinoPorMilitar.TryGetValue(m.Numero, out var alaJaUsada) || alaJaUsada == ala)
+                    .ToList();
+                if (candidatosOrigem.Count == 0)
+                    break;
+
+                var origemDepois = origemAtivos.Total - 1;
+                var destinoCritico = destinoAtivos.Total < minimoDestino || precisaMotorista;
+                if (origemDepois < minimoOrigem && !PodeOrigemFicarAbaixoMinimo(origemId, destinoId, destinoCritico))
+                    break;
+
+                var candidato = EscolherCandidatoComposicao(candidatosOrigem, precisaMotorista);
+                if (candidato is null)
+                    break;
+
+                var id = IdComposicao(origemId, destinoId, candidato.Numero, ala, dia);
+                if (ComposicaoExiste(origemEscala, id) || ComposicaoExiste(destinoEscala, id) || sugestoes.Any(s => s.Id == id))
+                    break;
+
+                var destinoDepois = destinoAtivos.Total + 1;
+                var motivoBase = precisaMotorista
+                    ? $"{destino.Cidade} sem motorista D em {dia:dd/MM}; {destino.Cidade} fica com {destinoDepois}/{minimoDestino}."
+                    : $"{destino.Cidade} com {destinoAtivos.Total}/{minimoDestino} militares; {destino.Cidade} fica com {destinoDepois}/{minimoDestino}.";
+                var motivoOrigem = origemDepois < minimoOrigem
+                    ? $"{origem.Cidade} fica com {origemDepois}/{minimoOrigem}; {DescreverBalanceamentoAdjacente(origemMilitares, origemEscala, ala, dia, candidato, usados, origemId)}"
+                    : $"{origem.Cidade} fica com {origemDepois}/{minimoOrigem}.";
+                var motivo = $"{motivoBase} {motivoOrigem}";
+
+                sugestoes.Add(new SugestaoComposicaoUnidade(id, origem.Id, UnidadeLabel(origem), destino.Id, UnidadeLabel(destino), ala, dia, candidato, motivo));
+                usados.Add(ChaveUsoComposicao(origemId, candidato.Numero, dia));
+                alaDestinoPorMilitar[candidato.Numero] = ala;
+            }
+        }
+
+        return sugestoes;
+    }
+
+    private static (int Total, int MotoristasD) ContarAtivosComposicao(
+        IReadOnlyList<Militar> militares,
+        EscalaMensal escala,
+        int ala,
+        DateTime dia,
+        string unidadeId,
+        IReadOnlyList<SugestaoComposicaoUnidade>? novas = null)
+    {
+        var saidas = escala.ComposicoesUnidade
+            .Where(c => string.Equals(c.PapelLocal, "origem", StringComparison.OrdinalIgnoreCase)
+                && c.Ala == ala
+                && EscalaLogic.ParseDataBr(c.Data)?.Date == dia.Date)
+            .Select(c => c.MilitarNumero)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (novas is not null)
+            foreach (var s in novas.Where(s => s.OrigemUnidadeId == unidadeId && s.Ala == ala && s.Data.Date == dia.Date))
+                saidas.Add(s.Militar.Numero);
+
+        var locais = militares
+            .Where(m => m.Ala == ala)
+            .Where(m => EscalaLogic.AusenciaNoDia(m, dia) is null)
+            .Where(m => !saidas.Contains(m.Numero))
+            .ToList();
+
+        var entradas = escala.ComposicoesUnidade
+            .Where(c => string.Equals(c.PapelLocal, "destino", StringComparison.OrdinalIgnoreCase)
+                && c.Ala == ala
+                && EscalaLogic.ParseDataBr(c.Data)?.Date == dia.Date)
+            .ToList();
+
+        if (novas is not null)
+            entradas.AddRange(novas
+                .Where(s => s.DestinoUnidadeId == unidadeId && s.Ala == ala && s.Data.Date == dia.Date)
+                .Select(s => CriarComposicao(s, "destino")));
+
+        return (locais.Count + entradas.Count, locais.Count(m => m.EhMotoristaD) + entradas.Count(c => (c.MilitarCnh ?? "").Contains('D', StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static List<Militar> CandidatosComposicao(IReadOnlyList<Militar> militares, EscalaMensal escala, int ala, DateTime dia)
+    {
+        var saidas = escala.ComposicoesUnidade
+            .Where(c => string.Equals(c.PapelLocal, "origem", StringComparison.OrdinalIgnoreCase)
+                && c.Ala == ala
+                && EscalaLogic.ParseDataBr(c.Data)?.Date == dia.Date)
+            .Select(c => c.MilitarNumero)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return militares
+            .Where(m => m.Ala == ala)
+            .Where(m => EscalaLogic.AusenciaNoDia(m, dia) is null)
+            .Where(m => !saidas.Contains(m.Numero))
+            .ToList();
+    }
+
+    private static Militar? EscolherCandidatoComposicao(IEnumerable<Militar> candidatos, bool precisaMotorista)
+    {
+        var lista = candidatos.Where(m => !precisaMotorista || m.EhMotoristaD).ToList();
+        if (lista.Count == 0)
+            return null;
+
+        var semChefia = lista.Where(m => !EhChefiaOperacional(m)).ToList();
+        if (semChefia.Count > 0)
+            lista = semChefia;
+
+        return lista
+            .OrderByDescending(m => m.ChaveAntiguidade.Posto)
+            .ThenByDescending(m => m.ChaveAntiguidade.Ordem)
+            .ThenBy(m => m.Nome)
+            .FirstOrDefault();
+    }
+
+    private static bool PodeOrigemFicarAbaixoMinimo(string origemId, string destinoId, bool destinoCritico) =>
+        destinoCritico
+        && origemId.Equals("formiga", StringComparison.OrdinalIgnoreCase)
+        && destinoId.Equals("arcos", StringComparison.OrdinalIgnoreCase);
+
+    private static string DescreverBalanceamentoAdjacente(
+        IReadOnlyList<Militar> militares,
+        EscalaMensal escala,
+        int alaCedente,
+        DateTime dia,
+        Militar militarCedido,
+        ISet<string> usados,
+        string unidadeId)
+    {
+        var adjacentes = AlasAdjacentesComposicao(alaCedente).ToHashSet();
+        var composicoesNaData = escala.ComposicoesUnidade
+            .Where(c => string.Equals(c.PapelLocal, "origem", StringComparison.OrdinalIgnoreCase)
+                && EscalaLogic.ParseDataBr(c.Data)?.Date == dia.Date)
+            .Select(c => c.MilitarNumero)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var candidatos = militares
+            .Where(m => m.Numero != militarCedido.Numero)
+            .Where(m => adjacentes.Contains(m.Ala))
+            .Where(m => EscalaLogic.AusenciaNoDia(m, dia) is null)
+            .Where(m => !composicoesNaData.Contains(m.Numero))
+            .Where(m => !usados.Contains(ChaveUsoComposicao(unidadeId, m.Numero, dia)))
+            .ToList();
+
+        var sugestao = EscolherCandidatoComposicao(candidatos, militarCedido.EhMotoristaD)
+            ?? EscolherCandidatoComposicao(candidatos, false);
+
+        if (sugestao is null)
+            return $"balancear internamente com alas adjacentes {string.Join("/", adjacentes.Order())}; nao encontrei candidato livre para sugerir.";
+
+        return $"avaliar balanceamento interno: {sugestao.Posto} {sugestao.Nome} da {sugestao.Ala}a Ala para recompor a {alaCedente}a Ala.";
+    }
+
+    private static int[] AlasAdjacentesComposicao(int ala) => ala switch
+    {
+        1 => [2, 4],
+        2 => [1, 3],
+        3 => [2, 4],
+        4 => [3, 1],
+        _ => [],
+    };
+
+    // Retorna a lista de composições escolhidas, ou null se o usuário cancelar (cancelar = não muda nada).
+    private List<SugestaoComposicaoUnidade>? SelecionarComposicoes(IReadOnlyList<SugestaoComposicaoUnidade> sugestoes)
+    {
+        using var dlg = new Form { Text = "Composição entre unidades", Width = 960, Height = 560, StartPosition = FormStartPosition.CenterParent, Font = new Font("Segoe UI", 9F) };
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 4, ColumnCount = 1, Padding = new Padding(14) };
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
+        dlg.Controls.Add(root);
+        root.Controls.Add(new Label
+        {
+            Text = "Selecione as composições que deseja aplicar. A regra usa somente militar da mesma ala e do mesmo dia de serviço.",
+            Dock = DockStyle.Fill,
+            ForeColor = CorTexto,
+            Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+        }, 0, 0);
+
+        var list = new CheckedListBox { Dock = DockStyle.Fill, CheckOnClick = true, HorizontalScrollbar = true };
+        foreach (var sugestao in sugestoes)
+            list.SetItemChecked(list.Items.Add(sugestao), true);
+
+        // Barra de atalhos: marcar/desmarcar todos e desmarcar/marcar todos de UM militar.
+        void DefinirPorMilitar(string numero, bool marcado)
+        {
+            for (var i = 0; i < list.Items.Count; i++)
+                if (list.Items[i] is SugestaoComposicaoUnidade s
+                    && string.Equals(s.Militar.Numero, numero, StringComparison.OrdinalIgnoreCase))
+                    list.SetItemChecked(i, marcado);
+        }
+        void DefinirTodos(bool marcado)
+        {
+            for (var i = 0; i < list.Items.Count; i++)
+                list.SetItemChecked(i, marcado);
+        }
+
+        var tools = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Padding = new Padding(0, 4, 0, 4) };
+        var cmbMilitar = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 300 };
+        foreach (var militar in sugestoes
+                     .Select(s => s.Militar)
+                     .GroupBy(m => m.Numero, StringComparer.OrdinalIgnoreCase)
+                     .Select(g => g.First())
+                     .OrderBy(m => m.Nome))
+            cmbMilitar.Items.Add(militar);
+        if (cmbMilitar.Items.Count > 0)
+            cmbMilitar.SelectedIndex = 0;
+
+        Militar? MilitarSel() => cmbMilitar.SelectedItem as Militar;
+        var btnDesmMil = new Button { Text = "Desmarcar deste militar", Width = 170, Height = 28 };
+        btnDesmMil.Click += (_, _) => { if (MilitarSel() is { } m) DefinirPorMilitar(m.Numero, false); };
+        var btnMarMil = new Button { Text = "Marcar deste militar", Width = 150, Height = 28 };
+        btnMarMil.Click += (_, _) => { if (MilitarSel() is { } m) DefinirPorMilitar(m.Numero, true); };
+        var btnDesmTodos = new Button { Text = "Desmarcar todos", Width = 130, Height = 28 };
+        btnDesmTodos.Click += (_, _) => DefinirTodos(false);
+        var btnMarTodos = new Button { Text = "Marcar todos", Width = 120, Height = 28 };
+        btnMarTodos.Click += (_, _) => DefinirTodos(true);
+        tools.Controls.Add(new Label { Text = "Militar:", AutoSize = true, Margin = new Padding(0, 8, 4, 0) });
+        tools.Controls.Add(cmbMilitar);
+        tools.Controls.Add(btnDesmMil);
+        tools.Controls.Add(btnMarMil);
+        tools.Controls.Add(new Label { Text = "   ", AutoSize = true });
+        tools.Controls.Add(btnDesmTodos);
+        tools.Controls.Add(btnMarTodos);
+        root.Controls.Add(tools, 0, 1);
+
+        root.Controls.Add(list, 0, 2);
+        var footer = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(0, 8, 0, 0) };
+        var ok = new Button { Text = "Aplicar selecionadas", Width = 160, Height = 30, DialogResult = DialogResult.OK };
+        var cancel = new Button { Text = "Cancelar", Width = 100, Height = 30, DialogResult = DialogResult.Cancel };
+        footer.Controls.Add(ok);
+        footer.Controls.Add(cancel);
+        root.Controls.Add(footer, 0, 3);
+        dlg.AcceptButton = ok;
+        dlg.CancelButton = cancel;
+        return dlg.ShowDialog(this) == DialogResult.OK
+            ? list.CheckedItems.OfType<SugestaoComposicaoUnidade>().ToList()
+            : null;
+    }
+
+    private static void AplicarComposicoesUnidade(IReadOnlyList<SugestaoComposicaoUnidade> sugestoes, int mes, int ano)
+    {
+        var escalas = new Dictionary<string, EscalaMensal>(StringComparer.OrdinalIgnoreCase);
+        foreach (var unidadeId in sugestoes.SelectMany(s => new[] { s.OrigemUnidadeId, s.DestinoUnidadeId }).Distinct(StringComparer.OrdinalIgnoreCase))
+            escalas[unidadeId] = Storage.LoadEscala(unidadeId, mes, ano) ?? Storage.NewEscala(unidadeId, mes, ano);
+
+        foreach (var sugestao in sugestoes)
+        {
+            var origemEscala = escalas[sugestao.OrigemUnidadeId];
+            var destinoEscala = escalas[sugestao.DestinoUnidadeId];
+            if (!ComposicaoExiste(origemEscala, sugestao.Id))
+                origemEscala.ComposicoesUnidade.Add(CriarComposicao(sugestao, "origem"));
+            if (!ComposicaoExiste(destinoEscala, sugestao.Id))
+                destinoEscala.ComposicoesUnidade.Add(CriarComposicao(sugestao, "destino"));
+        }
+
+        foreach (var (unidadeId, escala) in escalas)
+            Storage.SaveEscala(unidadeId, escala);
+    }
+
+    private static ComposicaoUnidade CriarComposicao(SugestaoComposicaoUnidade sugestao, string papelLocal) => new()
+    {
+        Id = sugestao.Id,
+        PapelLocal = papelLocal,
+        OrigemUnidadeId = sugestao.OrigemUnidadeId,
+        OrigemNome = sugestao.OrigemNome,
+        DestinoUnidadeId = sugestao.DestinoUnidadeId,
+        DestinoNome = sugestao.DestinoNome,
+        Ala = sugestao.Ala,
+        Data = EscalaLogic.FmtDataBr(sugestao.Data),
+        MilitarNumero = sugestao.Militar.Numero,
+        MilitarPosto = sugestao.Militar.Posto,
+        MilitarNome = sugestao.Militar.Nome,
+        MilitarCnh = sugestao.Militar.CategoriaCnh,
+        MilitarFuncao = sugestao.Militar.Funcao,
+        Motivo = sugestao.Motivo,
+    };
+
+    private static int MinimoEfetivoComposicao(string unidadeId)
+    {
+        if (unidadeId.Equals("formiga", StringComparison.OrdinalIgnoreCase))
+            return 7;
+        if (unidadeId.Equals("arcos", StringComparison.OrdinalIgnoreCase))
+            return 3;
+        return 0;
+    }
+
+    private static bool ComposicaoExiste(EscalaMensal escala, string id) =>
+        escala.ComposicoesUnidade.Any(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase));
+
+    private static string IdComposicao(string origemId, string destinoId, string militarNumero, int ala, DateTime data) =>
+        $"{data:yyyyMMdd}|{origemId}|{destinoId}|{ala}|{militarNumero}";
+
+    private static string ChaveUsoComposicao(string origemId, string militarNumero, DateTime data) =>
+        $"{data:yyyyMMdd}|{origemId}|{militarNumero}";
+
+    private static bool EhChefiaOperacional(Militar militar)
+    {
+        var funcao = militar.Funcao.ToLowerInvariant();
+        return funcao.Contains("ch. servi") || funcao.Contains("chefe") || funcao.Contains("cmt. gu") || funcao.Contains("comandante de gu");
+    }
+
+    // Assistente POR UNIDADE: recalcula apenas as coberturas da unidade atual e/ou gera o PDF dela.
+    // A composição ENTRE unidades NÃO é feita aqui (é uma operação global) — use GerarEscalaTodasUnidades.
     private void GerarEscalaAssistente()
     {
         if (_cmbMes.SelectedItem is not int mes || _cmbAno.SelectedItem is not int ano)
@@ -2205,18 +2766,167 @@ public sealed class MainForm : Form
         var alertas = EscalaLogic.Diagnosticar(_militares, mes, ano);
         var alta = alertas.Count(a => a.Severidade == "alta");
         var media = alertas.Count(a => a.Severidade == "media");
-        var msg = $"Diagnóstico atual: {alta} problemas críticos e {media} avisos.\n\n" +
-                  "Sim: cobrir ausências automaticamente\n" +
-                  "Não: gerar PDF agora\n" +
+        var msg = $"Diagnóstico da UNIDADE ATUAL: {alta} problemas críticos e {media} avisos.\n\n" +
+                  "As coberturas automáticas desta unidade são recalculadas do zero\n" +
+                  "(suas edições manuais e remanejamentos são preservados).\n\n" +
+                  "A composição ENTRE unidades (Formiga ↔ Arcos) NÃO é feita aqui.\n" +
+                  "Para isso use o botão \"Gerar escala (todas as unidades)\".\n\n" +
+                  "Sim: recalcular coberturas desta unidade\n" +
+                  "Não: gerar PDF desta unidade agora\n" +
                   "Cancelar: fechar";
-        var res = MessageBox.Show(this, msg, "Assistente - Gerar Escala do Mês", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Information);
+        var res = MessageBox.Show(this, msg, "Assistente - Gerar Escala da Unidade", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Information);
         if (res == DialogResult.Yes)
             CobrirAusenciasAutomaticamente();
         else if (res == DialogResult.No)
             GerarPdf();
     }
 
+    // Aplica a cobertura automática (idempotente) de TODAS as unidades. Retorna o total de dias cobertos.
+    private static int CoberturaTodasUnidades(int mes, int ano)
+    {
+        var total = 0;
+        foreach (var unidade in Storage.LoadUnidades())
+        {
+            var militares = Storage.LoadMilitares(unidade.Id);
+            var escala = Storage.LoadEscala(unidade.Id, mes, ano) ?? Storage.NewEscala(unidade.Id, mes, ano);
+            var r = EscalaLogic.AplicarCoberturasAutomaticas(militares, escala, mes, ano);
+            Storage.SaveMilitares(unidade.Id, militares);
+            Storage.SaveEscala(unidade.Id, escala);
+            total += r.DiasCobertos;
+        }
+
+        return total;
+    }
+
+    // Orquestração SEM interface: coberturas de todas as unidades + composição global,
+    // aplicando TODAS as sugestões (sem diálogo). Usada pela linha de comando (--recalc-all)
+    // e por automação. A versão com confirmação do tenente está em GerarEscalaTodasUnidades.
+    public static (int Coberturas, int Composicoes, int Purgadas) RecalcularTudoSemInteracao(int mes, int ano)
+    {
+        var coberturas = CoberturaTodasUnidades(mes, ano);
+        var purgadas = PurgarComposicoesMes(mes, ano);
+        var sugestoes = ObterSugestoesComposicaoUnidades(mes, ano);
+        AplicarComposicoesUnidade(sugestoes, mes, ano);
+        return (coberturas, sugestoes.Count, purgadas);
+    }
+
+    // Geração GLOBAL: processa TODAS as unidades na ordem correta —
+    // 1) cobre ausências de cada unidade (dentro da própria unidade);
+    // 2) recalcula a composição entre unidades UMA vez, já com as coberturas aplicadas;
+    // 3) opcionalmente gera os PDFs de todas as unidades.
+    // Isso elimina o conflito de gerar uma unidade por vez ("a última geração vence").
+    private void GerarEscalaTodasUnidades()
+    {
+        if (_cmbMes.SelectedItem is not int mes || _cmbAno.SelectedItem is not int ano)
+            return;
+
+        var unidades = Storage.LoadUnidades();
+        if (unidades.Count == 0)
+            return;
+
+        var nomes = string.Join(", ", unidades.Select(u => u.Cidade));
+        if (MessageBox.Show(this,
+                $"Gerar a escala de {EscalaLogic.MesesPt[mes]}/{ano} para TODAS as unidades ({nomes})?\n\n" +
+                "Serão recalculados do zero (preservando edições manuais e remanejamentos):\n" +
+                "1) as coberturas automáticas de cada unidade;\n" +
+                "2) a composição entre unidades — você confirma quais aplicar.\n\n" +
+                "Depois você poderá gerar os PDFs.",
+                "Gerar escala (todas as unidades)",
+                MessageBoxButtons.OKCancel,
+                MessageBoxIcon.Question) != DialogResult.OK)
+            return;
+
+        // 1) Cobertura de ausências por unidade (sempre antes da composição).
+        var totalCoberturas = CoberturaTodasUnidades(mes, ano);
+
+        // 2) Composição entre unidades: as sugestões são calculadas do zero EM MEMÓRIA, sem
+        //    apagar nada em disco. O expurgo das composições antigas só acontece se o usuário
+        //    confirmar a aplicação — assim, cancelar o diálogo NÃO apaga as composições do mês.
+        var sugestoes = ObterSugestoesComposicaoUnidades(mes, ano);
+        int? aplicadas = null;
+        var purgadas = 0;
+        if (sugestoes.Count > 0)
+        {
+            var selecionadas = SelecionarComposicoes(sugestoes); // null = usuário cancelou
+            if (selecionadas is not null)
+            {
+                purgadas = PurgarComposicoesMes(mes, ano);
+                AplicarComposicoesUnidade(selecionadas, mes, ano);
+                aplicadas = selecionadas.Count;
+            }
+        }
+        else
+        {
+            // Sem sugestões (composição desabilitada ou sem déficit): limpa composições antigas.
+            purgadas = PurgarComposicoesMes(mes, ano);
+            aplicadas = 0;
+        }
+
+        // Recarrega a unidade atual em memória (militares + escala já recalculados em disco).
+        _militares = Storage.LoadMilitares();
+        LoadEscalaPeriodo();
+        RefreshAll();
+
+        var msgComp = aplicadas is null
+            ? "Composição entre unidades: cancelada (as composições do mês foram mantidas)."
+            : $"Composições entre unidades: {aplicadas.Value} aplicada(s)"
+              + (purgadas > 0 ? $" (as {purgadas} anteriores foram substituídas)." : ".");
+        MessageBox.Show(this,
+            $"Escala recalculada para {unidades.Count} unidade(s) em {EscalaLogic.MesesPt[mes]}/{ano}.\n\n" +
+            $"Coberturas automáticas: {totalCoberturas} dia(s).\n" +
+            msgComp,
+            "Gerar escala (todas as unidades)", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+        // 3) Oferecer geração dos PDFs de todas as unidades.
+        if (MessageBox.Show(this,
+                "Gerar agora os PDFs de todas as unidades?",
+                "PDFs", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+            GerarPdfTodasUnidades(mes, ano, unidades);
+    }
+
+    private void GerarPdfTodasUnidades(int mes, int ano, IReadOnlyList<UnidadeCadastro> unidades)
+    {
+        Directory.CreateDirectory(Storage.OutputDir);
+        var gerados = new List<string>();
+        var erros = new List<string>();
+        foreach (var unidade in unidades)
+        {
+            try
+            {
+                var escala = Storage.LoadEscala(unidade.Id, mes, ano) ?? Storage.NewEscala(unidade.Id, mes, ano);
+                var militares = Storage.LoadMilitares(unidade.Id);
+                var alas = Storage.LoadAlas(unidade.Id);
+                var nome = $"ESCALA - {escala.Cidade.ToUpperInvariant()} - {CultureTitle(EscalaLogic.MesesPt[mes])} {ano}.pdf";
+                var caminho = Path.Combine(Storage.OutputDir, nome);
+                PdfExport.GerarPdf(escala, militares, alas, caminho);
+                gerados.Add(caminho);
+            }
+            catch (Exception ex)
+            {
+                erros.Add($"{unidade.Cidade}: {ex.Message}");
+            }
+        }
+
+        var msg = gerados.Count > 0
+            ? "PDFs gerados:\n" + string.Join("\n", gerados.Select(Path.GetFileName))
+            : "Nenhum PDF gerado.";
+        if (erros.Count > 0)
+            msg += "\n\nFalhas:\n" + string.Join("\n", erros);
+        Status($"{gerados.Count} PDF(s) gerado(s) em {Storage.OutputDir}");
+        MessageBox.Show(this, msg, "PDFs gerados", MessageBoxButtons.OK,
+            erros.Count > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
+        if (gerados.Count > 0 && MessageBox.Show(this, "Abrir a pasta dos PDFs?", "PDFs", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Storage.OutputDir) { UseShellExecute = true });
+    }
+
     private void SalvarTudo()
+    {
+        SalvarEstadoAtualSilencioso();
+        Status("Tudo salvo.");
+        MessageBox.Show(this, "Todos os dados foram salvos com sucesso!", "Salvar tudo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    private void SalvarEstadoAtualSilencioso()
     {
         if (_escalaAtual is not null)
         {
@@ -2226,8 +2936,6 @@ public sealed class MainForm : Form
         }
         Storage.SaveMilitares(_militares);
         Storage.SaveAlas(_alas);
-        Status("Tudo salvo.");
-        MessageBox.Show(this, "Todos os dados foram salvos com sucesso!", "Salvar tudo", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
     private void GerarPdf()
@@ -2250,12 +2958,10 @@ public sealed class MainForm : Form
 
         try
         {
-            var caminho = dlg.FileName;
-            if (!PythonPdfExporter.TryGenerate(_escalaAtual, caminho, out var pyError))
-            {
-                caminho = PdfExport.GerarPdf(_escalaAtual, _militares, _alas, dlg.FileName);
-                Status($"PDF gerado pelo fallback C#: {pyError}");
-            }
+            // Motor único: o PDF é gerado pelo exportador C#/QuestPDF, que usa exatamente a
+            // mesma lógica da tela (EscalaLogic.MontarGradeAla) — incluindo ocultações,
+            // inserções, células manuais e composições. Assim o PDF reflete fielmente a tela.
+            var caminho = PdfExport.GerarPdf(_escalaAtual, _militares, _alas, dlg.FileName);
             Status($"PDF gerado: {caminho}");
             if (MessageBox.Show(this, $"Salvo em:\n{caminho}\n\nAbrir agora?", "PDF gerado", MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(caminho) { UseShellExecute = true });
@@ -2337,6 +3043,7 @@ public sealed class MainForm : Form
 
         var (bg, fg, bold) = escalaCell.Valor switch
         {
+            _ when escalaCell.Cor == "unidade_destino" => ("#5B9BD5", Color.White, true),
             "FA" or "FP" => ("#ED7D31", Color.White, true),
             "L" => ("#BFBFBF", Color.Black, true),
             "D" => ("#C00000", Color.White, true),
@@ -2386,6 +3093,30 @@ public sealed class MainForm : Form
             Font = new Font("Segoe UI", 9F, FontStyle.Bold),
         };
         btn.FlatAppearance.BorderSize = 0;
+        btn.Click += (_, _) => action();
+        return btn;
+    }
+
+    private Button SmallTopButton(string text, Action action)
+    {
+        var btn = new Button
+        {
+            Text = text,
+            Width = 72,
+            Height = 28,
+            Margin = new Padding(6, 0, 0, 0),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = ColorTranslator.FromHtml("#F8FAFC"),
+            ForeColor = CorPrimaria,
+            Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+            TextAlign = ContentAlignment.MiddleCenter,
+            Padding = Padding.Empty,
+            Cursor = Cursors.Hand,
+        };
+        btn.FlatAppearance.BorderColor = ColorTranslator.FromHtml("#CFE0F2");
+        btn.FlatAppearance.BorderSize = 1;
+        btn.FlatAppearance.MouseOverBackColor = Color.White;
+        btn.FlatAppearance.MouseDownBackColor = ColorTranslator.FromHtml("#DCEBFA");
         btn.Click += (_, _) => action();
         return btn;
     }
@@ -2579,8 +3310,9 @@ public sealed class MainForm : Form
     private TabPage BuildConfiguracoesTab()
     {
         var tab = NewTab("Configurações");
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, Padding = new Padding(10), BackColor = CorFundo };
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, Padding = new Padding(10), BackColor = CorFundo };
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 118));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         tab.Controls.Add(root);
 
@@ -2606,16 +3338,59 @@ public sealed class MainForm : Form
         header.Controls.Add(lblTitle);
         header.Controls.Add(lblSub);
         root.Controls.Add(header, 0, 0);
+        root.Controls.Add(BuildComposicaoConfigPanel(), 0, 1);
 
         var cols = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, BackColor = CorFundo };
         cols.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         cols.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        root.Controls.Add(cols, 0, 1);
+        root.Controls.Add(cols, 0, 2);
 
         cols.Controls.Add(BuildSecoesConfigList(), 0, 0);
         cols.Controls.Add(BuildConfigList("Funções", "Aparece no campo \"Função\" ao cadastrar militar.", out _lbFuncoes, "funcoes"), 1, 0);
         RecarregarListasConfig();
         return tab;
+    }
+
+    private Panel BuildComposicaoConfigPanel()
+    {
+        var card = CardPanel();
+        card.Dock = DockStyle.Fill;
+        card.Margin = new Padding(4, 4, 4, 8);
+        card.Padding = new Padding(14, 10, 14, 10);
+
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1 };
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+        card.Controls.Add(layout);
+
+        layout.Controls.Add(new Label
+        {
+            Text = "Composição entre unidades",
+            Dock = DockStyle.Fill,
+            Font = new Font("Segoe UI", 12F, FontStyle.Bold),
+            ForeColor = CorPrimaria,
+        }, 0, 0);
+
+        layout.Controls.Add(new Label
+        {
+            Text = "Quando habilitado, a escala assistida sugere apoio apenas com militares da mesma ala e do mesmo dia de serviço.",
+            Dock = DockStyle.Fill,
+            Font = new Font("Segoe UI", 9F),
+            ForeColor = CorTextoMuted,
+        }, 0, 1);
+
+        var checks = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
+        _chkArcosCompoeFormiga = new CheckBox { Text = "Arcos pode compor Formiga", AutoSize = true, Margin = new Padding(4, 7, 26, 0) };
+        _chkFormigaCompoeArcos = new CheckBox { Text = "Formiga pode compor Arcos", AutoSize = true, Margin = new Padding(4, 7, 26, 0) };
+        _chkArcosCompoeFormiga.CheckedChanged += (_, _) => SalvarComposicaoConfig();
+        _chkFormigaCompoeArcos.CheckedChanged += (_, _) => SalvarComposicaoConfig();
+        checks.Controls.Add(_chkArcosCompoeFormiga);
+        checks.Controls.Add(_chkFormigaCompoeArcos);
+        layout.Controls.Add(checks, 0, 2);
+
+        RecarregarComposicaoConfig();
+        return card;
     }
 
     private Panel BuildSecoesConfigList()
@@ -2725,6 +3500,28 @@ public sealed class MainForm : Form
         foreach (var f in cfg["funcoes"])
             if (!string.IsNullOrEmpty(f))
                 _lbFuncoes.Items.Add(f);
+        RecarregarComposicaoConfig();
+    }
+
+    private void RecarregarComposicaoConfig()
+    {
+        if (_chkArcosCompoeFormiga is null || _chkFormigaCompoeArcos is null)
+            return;
+
+        _recarregandoConfig = true;
+        _chkArcosCompoeFormiga.Checked = Storage.LoadAppFlag("composicao_arcos_formiga");
+        _chkFormigaCompoeArcos.Checked = Storage.LoadAppFlag("composicao_formiga_arcos");
+        _recarregandoConfig = false;
+    }
+
+    private void SalvarComposicaoConfig()
+    {
+        if (_recarregandoConfig || _chkArcosCompoeFormiga is null || _chkFormigaCompoeArcos is null)
+            return;
+
+        Storage.SaveAppFlag("composicao_arcos_formiga", _chkArcosCompoeFormiga.Checked);
+        Storage.SaveAppFlag("composicao_formiga_arcos", _chkFormigaCompoeArcos.Checked);
+        Status("Configuração de composição entre unidades atualizada.");
     }
 
     private void SalvarSecoesSegundoEsforco()
@@ -2821,5 +3618,25 @@ public sealed class MainForm : Form
     private sealed record MilitarComboItem(string Numero, string Label)
     {
         public override string ToString() => Label;
+    }
+
+    private sealed record UnidadeComboItem(string Id, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    private sealed record SugestaoComposicaoUnidade(
+        string Id,
+        string OrigemUnidadeId,
+        string OrigemNome,
+        string DestinoUnidadeId,
+        string DestinoNome,
+        int Ala,
+        DateTime Data,
+        Militar Militar,
+        string Motivo)
+    {
+        public override string ToString() =>
+            $"{Data:dd/MM} - {OrigemNome} -> {DestinoNome} ({Ala}ª Ala): {Militar.Posto} {Militar.Nome} - {Motivo}";
     }
 }

@@ -88,11 +88,13 @@ def montar_grade_ala(
     mes: int,
     ano: int,
     remanejamentos: list[RemanejamentoLog] | None = None,
+    composicoes_unidade: list | None = None,
 ) -> tuple[list[date], dict[str, list[CelulaEscala]]]:
     """Gera a grade da ala: para cada militar uma lista de células (8 dias)."""
     dias = dias_da_ala(ala, mes, ano)
     grade: dict[str, list[CelulaEscala]] = {}
     remanejamentos = remanejamentos or []
+    composicoes_unidade = composicoes_unidade or []
     mapa_todos = {m.numero: m for m in todos_militares}
 
     for m in militares_ala:
@@ -149,7 +151,40 @@ def montar_grade_ala(
                     for i, dt in enumerate(dias):
                         if dt in dias_cobertos:
                             grade[m_out.numero][i] = CelulaEscala("S", "remanejado")
+
+    for comp in composicoes_unidade:
+        if getattr(comp, "ala", 0) != ala:
+            continue
+        dt = parse_data_br(getattr(comp, "data", ""))
+        if dt not in dias:
+            continue
+        idx = dias.index(dt)
+        papel = getattr(comp, "papel_local", "").lower()
+        numero = getattr(comp, "militar_numero", "")
+        if papel == "origem":
+            if numero in grade:
+                grade[numero][idx] = CelulaEscala(_sigla_unidade(getattr(comp, "destino_nome", "")), "unidade_destino")
+            continue
+        if papel != "destino":
+            continue
+        if numero not in grade:
+            grade[numero] = [
+                CelulaEscala(_sigla_unidade(getattr(comp, "origem_nome", "")), "ala_origem") for _ in dias
+            ]
+        grade[numero][idx] = CelulaEscala("S", "composicao_unidade")
     return dias, grade
+
+
+def _sigla_unidade(nome: str) -> str:
+    if not nome:
+        return "EXT"
+    lower = nome.lower()
+    if "formiga" in lower:
+        return "FOR"
+    if "arcos" in lower:
+        return "ARC"
+    letras = "".join(ch for ch in nome if ch.isalnum())[:3]
+    return letras.upper() if letras else "EXT"
 
 
 def remanejamento_no_dia(

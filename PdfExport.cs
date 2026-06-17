@@ -24,6 +24,7 @@ public static class PdfExport
     private const string CorObsVermelho = "#C00000";
     private const string CorFuncaoAzul = "#1F4E79";
     private const string CorFuncaoVermelho = "#C00000";
+    private const string CorTextoS = "#1F4E79";
     private const string CorResumoHeader = "#F2F2F2";
     private const string CorResumoVerdeClaro = "#A9D08E";
     private const string CorResumoVerdeEscuro = "#70AD47";
@@ -39,6 +40,7 @@ public static class PdfExport
         ["L"] = ("#BFBFBF", "#000000"),
         ["FD"] = ("#00B0F0", "#000000"),
         ["FN"] = ("#FFFF00", "#000000"),
+        ["FR"] = ("#92D050", "#000000"),
         ["FA"] = ("#ED7D31", "#FFFFFF"),
         ["FP"] = ("#ED7D31", "#FFFFFF"),
         ["LN"] = ("#ED7D31", "#FFFFFF"),
@@ -53,7 +55,9 @@ public static class PdfExport
 
     public static string GerarPdf(EscalaMensal escala, IReadOnlyList<Militar> militares, IReadOnlyList<AlaConfig> alas, string caminhoSaida)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(caminhoSaida)!);
+        var dirSaida = Path.GetDirectoryName(caminhoSaida);
+        if (!string.IsNullOrEmpty(dirSaida))
+            Directory.CreateDirectory(dirSaida);
         QuestPDF.Settings.License = LicenseType.Community;
 
         Document.Create(doc =>
@@ -116,7 +120,7 @@ public static class PdfExport
     private static void TabelaSecao(ColumnDescriptor column, string titulo, IReadOnlyList<Militar> militares, int mes, int ano)
     {
         column.Item().AlignCenter().Text(titulo).Style(Ts(10, bold: true, italic: true));
-        column.Item().Table(table =>
+        column.Item().AlignCenter().Table(table =>
         {
             table.ColumnsDefinition(cols =>
             {
@@ -203,9 +207,12 @@ public static class PdfExport
         column.Item().AlignCenter().Text($"{ala.Numero}ª ALA OPERACIONAL – {EscalaLogic.MesesPt[mes]} / {ano}")
             .Style(Ts(11, bold: true, italic: true));
 
-        var (dias, grade) = EscalaLogic.MontarGradeAla(militaresAla, todosMilitares, ala.Numero, mes, ano, escala);
+        var todosComExternos = MilitaresComComposicoesExternas(todosMilitares, escala, ala.Numero, mes, ano);
+        var (dias, grade) = EscalaLogic.MontarGradeAla(militaresAla, todosComExternos, ala.Numero, mes, ano, escala);
         var nDias = dias.Count;
-        var mapaTodos = todosMilitares.ToDictionary(m => m.Numero, m => m);
+        var mapaTodos = todosComExternos
+            .GroupBy(m => m.Numero, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
         var numerosAla = militaresAla.Select(m => m.Numero).ToHashSet();
         var visitantes = grade.Keys.Where(k => !numerosAla.Contains(k) && mapaTodos.ContainsKey(k)).Select(k => mapaTodos[k]).ToList();
         var linhas = militaresAla
@@ -214,7 +221,8 @@ public static class PdfExport
             .ThenBy(m => m.ChaveAntiguidade.Ordem)
             .ToList();
 
-        column.Item().Table(table =>
+        // Centralizada na página (igual ao padrão reportlab, cujo hAlign default é CENTER).
+        column.Item().AlignCenter().Table(table =>
         {
             table.ColumnsDefinition(cols =>
             {
@@ -268,12 +276,53 @@ public static class PdfExport
         });
 
         column.Item().Height(4);
-        column.Item().Row(row =>
+        column.Item().AlignCenter().Row(row =>
         {
-            row.ConstantItem((42 + 8 + 11 + 8 * nDias) * Mm).Element(c => ResumoAla(c, militaresAla, grade, dias, observacoesAla));
-            row.ConstantItem(62 * Mm).Element(LegendaColorida);
+            // Resumo (36+55+10+11*dias) + legenda (22+36=58) = largura total da tabela de militares,
+            // para os blocos de baixo alinharem na mesma largura/borda direita da tabela.
+            row.ConstantItem((36 + 55 + 10 + 11 * nDias) * Mm).Element(c => ResumoAla(c, militaresAla, grade, dias, observacoesAla, todosComExternos));
+            row.ConstantItem(58 * Mm).Element(LegendaColorida);
         });
         column.Item().Height(6);
+    }
+
+    private static List<Militar> MilitaresComComposicoesExternas(
+        IEnumerable<Militar> militares,
+        EscalaMensal? escala,
+        int ala,
+        int mes,
+        int ano)
+    {
+        var lista = militares.ToList();
+        if (escala is null)
+            return lista;
+
+        foreach (var composicao in escala.ComposicoesUnidade)
+        {
+            if (!string.Equals(composicao.PapelLocal, "destino", StringComparison.OrdinalIgnoreCase) || composicao.Ala != ala)
+                continue;
+
+            var dt = EscalaLogic.ParseDataBr(composicao.Data);
+            if (!dt.HasValue || dt.Value.Month != mes || dt.Value.Year != ano)
+                continue;
+            if (lista.Any(m => string.Equals(m.Numero, composicao.MilitarNumero, StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            lista.Add(new Militar
+            {
+                Numero = composicao.MilitarNumero,
+                Posto = composicao.MilitarPosto,
+                Nome = composicao.MilitarNome,
+                CategoriaCnh = string.IsNullOrWhiteSpace(composicao.MilitarCnh) ? "-" : composicao.MilitarCnh,
+                Funcao = composicao.MilitarFuncao,
+                Secao = "OPERACIONAL",
+                Ala = 0,
+                Ordem = 999,
+                Observacoes = $"Origem: {composicao.OrigemNome}",
+            });
+        }
+
+        return lista;
     }
 
     private static void ResumoAla(
@@ -281,9 +330,10 @@ public static class PdfExport
         IReadOnlyList<Militar> militaresAla,
         Dictionary<string, List<CelulaEscala>> grade,
         IReadOnlyList<DateTime> dias,
-        IReadOnlyList<string>? observacoesAla)
+        IReadOnlyList<string>? observacoesAla,
+        IReadOnlyList<Militar> todosMilitares)
     {
-        var resumo = EscalaLogic.ResumirAla(militaresAla, grade, dias);
+        var resumo = EscalaLogic.ResumirAla(militaresAla, grade, dias, todosMilitares);
         var n = dias.Count;
         var blocks = new List<(string Nome, int TotalCat, int[] Totais, bool DiaNoite)>
         {
@@ -297,43 +347,69 @@ public static class PdfExport
 
         container.Table(table =>
         {
+            // Larguras alinhadas com a tabela de militares para o resumo casar coluna a coluna:
+            // 36 = ORD+Nº+P/G (8+15+13), 55 = NOME, 10 = MOT CAT, 11 por dia (igual aos dias da tabela).
             table.ColumnsDefinition(cols =>
             {
-                cols.ConstantColumn(42 * Mm);
-                cols.ConstantColumn(8 * Mm);
-                cols.ConstantColumn(11 * Mm);
+                cols.ConstantColumn(36 * Mm);
+                cols.ConstantColumn(55 * Mm);
+                cols.ConstantColumn(10 * Mm);
                 for (var i = 0; i < n; i++)
-                    cols.ConstantColumn(8 * Mm);
+                    cols.ConstantColumn(11 * Mm);
             });
 
             foreach (var block in blocks)
             {
-                AddResumoRow(table, block.Nome, block.TotalCat, "TOTAL:", block.Totais, CorResumoHeader, "#FFFFFF", CorResumoTexto);
                 if (block.DiaNoite)
                 {
-                    AddResumoRow(table, "", 0, "DIA:", block.Totais, CorResumoHeader, CorResumoVerdeClaro, "#000000");
-                    AddResumoRow(table, "", 0, "NOITE:", block.Totais, CorResumoHeader, CorResumoVerdeEscuro, "#000000");
+                    // Rótulo (col 0) e total da categoria (col 1) MESCLADOS nas 3 linhas TOTAL/DIA/NOITE,
+                    // igual ao padrão. A célula do total fica centralizada verticalmente nas 3 linhas.
+                    table.Cell().RowSpan(3).Element(c => ResumoCell(c, CorResumoHeader)).Text(block.Nome).Style(Ts(6.5f, bold: true));
+                    table.Cell().RowSpan(3).Element(c => ResumoCell(c, CorResumoHeader)).Text(block.TotalCat.ToString()).Style(Ts(6.5f, bold: true, color: CorResumoTexto));
+                    AddResumoValues(table, "TOTAL:", block.Totais, "#FFFFFF", CorResumoTexto);
+                    AddResumoValues(table, "DIA:", block.Totais, CorResumoVerdeClaro, "#000000");
+                    AddResumoValues(table, "NOITE:", block.Totais, CorResumoVerdeEscuro, "#000000");
+                }
+                else
+                {
+                    table.Cell().Element(c => ResumoCell(c, CorResumoHeader)).Text(block.Nome).Style(Ts(6.5f, bold: true));
+                    table.Cell().Element(c => ResumoCell(c, CorResumoHeader)).Text(block.TotalCat.ToString()).Style(Ts(6.5f, bold: true, color: CorResumoTexto));
+                    AddResumoValues(table, "TOTAL:", block.Totais, "#FFFFFF", CorResumoTexto);
                 }
             }
 
-            table.Cell().ColumnSpan((uint)(3 + n)).Element(c => Cell(c, "#FFFFFF")).Text("OBSERVAÇÕES GERAIS").Style(Ts(6.5f, bold: true));
+            table.Cell().ColumnSpan((uint)(3 + n)).Element(c => ResumoCell(c, HeaderDark)).Text("OBSERVAÇÕES GERAIS").Style(Ts(6.5f, bold: true));
             var obsList = observacoesAla ?? [];
-            var lines = Math.Max(0, 17 - 13);
+            // A legenda tem 18 linhas (1 cabeçalho "LEGENDA:" + 17 itens, incluindo FR).
+            // O resumo ocupa 11 linhas antes das observações (10 do resumo + 1 do cabeçalho
+            // OBSERVAÇÕES GERAIS), então faltam 7 linhas de observação para a borda inferior
+            // bater com a legenda — senão sobra um vão SEM GRADE no canto inferior esquerdo.
+            const int linhasLegenda = 18;
+            const int linhasResumoAntesObs = 11;
+            var lines = Math.Max(0, linhasLegenda - linhasResumoAntesObs);
             for (var i = 0; i < lines; i++)
             {
-                table.Cell().ColumnSpan((uint)(3 + n)).Element(c => Cell(c, "#FFFFFF", alignLeft: true))
+                table.Cell().ColumnSpan((uint)(3 + n)).Element(c => ResumoCell(c, "#FFFFFF", alignLeft: true))
                     .Text(i < obsList.Count ? obsList[i] : "").Style(Ts(6.5f));
             }
         });
     }
 
-    private static void AddResumoRow(TableDescriptor table, string nome, int totalCat, string rotulo, int[] totais, string bgLeft, string bgRight, string textRight)
+    // Célula do resumo: borda mais grossa (1pt) para reproduzir o "grid escuro" do padrão.
+    private static IContainer ResumoCell(IContainer container, string? background = null, bool alignLeft = false)
     {
-        TableTextCell(table, nome, bgLeft, bold: true, size: 6.5f);
-        TableTextCell(table, totalCat == 0 && string.IsNullOrEmpty(nome) ? "" : totalCat.ToString(), bgLeft, CorResumoTexto, bold: true, size: 6.5f);
-        TableTextCell(table, rotulo, bgRight, textRight, bold: true, size: 6.5f);
+        var styled = container.Border(1f).BorderColor("#000000");
+        if (!string.IsNullOrWhiteSpace(background))
+            styled = styled.Background(background);
+        styled = styled.Padding(2).MinHeight(12).AlignMiddle();
+        return alignLeft ? styled.AlignLeft() : styled.AlignCenter();
+    }
+
+    private static void AddResumoValues(TableDescriptor table, string rotulo, int[] totais, string bg, string textColor)
+    {
+        table.Cell().Element(c => ResumoCell(c, bg)).Text(rotulo).Style(Ts(6.5f, bold: true, color: textColor));
         foreach (var total in totais)
-            TableTextCell(table, total.ToString(), bgRight, textRight, bold: true, size: 6.5f);
+            table.Cell().Element(c => ResumoCell(c, bg)).Text(total.ToString()).Style(Ts(6.5f, bold: true, color: textColor));
     }
 
     private static void LegendaColorida(IContainer container)
@@ -346,6 +422,7 @@ public static class PdfExport
             ("L", "Licença Médica"),
             ("FD", "Folga - Reposição (12H) - DIURNO"),
             ("FN", "Folga - Reposição (12H) - NOTURNO"),
+            ("FR", "Folga - Reposição Obrigatória"),
             ("FA", "Férias Anuais"),
             ("FP", "Férias Prêmio"),
             ("LN", "Licença Núpcias"),
@@ -363,7 +440,7 @@ public static class PdfExport
             table.ColumnsDefinition(cols =>
             {
                 cols.ConstantColumn(15 * Mm);
-                cols.ConstantColumn(47 * Mm);
+                cols.ConstantColumn(43 * Mm);
             });
             table.Cell().ColumnSpan(2).Element(c => Cell(c, HeaderTab)).Text("LEGENDA:").Style(Ts(6.5f, bold: true, italic: true));
             foreach (var (cod, desc) in itens)
@@ -522,6 +599,8 @@ public static class PdfExport
     {
         if (string.IsNullOrWhiteSpace(valor))
             return (null, null, false, false);
+        if (valor == "S")
+            return ("#FFFFFF", CorTextoS, false, false); // S: fundo branco, letra azul (padrão)
         if (LegendaCores.TryGetValue(valor, out var legendaCor))
             return (legendaCor.Bg, legendaCor.Text, valor is not "S" and not "R", false);
         if (valor is "FA" or "FP")
@@ -540,6 +619,8 @@ public static class PdfExport
             return (CorT, "#FFFFFF", true, false);
         if (valor == "LN")
             return (CorLn, "#000000", true, false);
+        if (corEstilo == "unidade_destino")
+            return (CorRemanejAla, "#FFFFFF", true, false);
         if (valor.EndsWith("ª Ala", StringComparison.Ordinal))
             return corEstilo == "ala_origem" ? (CorAlaOrigem, "#7B7B7B", false, false) : (CorRemanejAla, "#FFFFFF", true, false);
         return (null, null, false, false);
@@ -559,9 +640,12 @@ public static class PdfExport
 
     private static IContainer Cell(IContainer container, string? background = null, bool alignLeft = false)
     {
-        var styled = container.Border(0.5f).BorderColor("#000000").Padding(2).MinHeight(12).AlignMiddle();
+        // O fundo é aplicado ANTES do Padding para preencher a célula inteira (igual ao padrão).
+        // Se aplicado depois, a cor fica recuada (com borda branca interna).
+        var styled = container.Border(0.5f).BorderColor("#000000");
         if (!string.IsNullOrWhiteSpace(background))
             styled = styled.Background(background);
+        styled = styled.Padding(2).MinHeight(12).AlignMiddle();
         return alignLeft ? styled.AlignLeft() : styled.AlignCenter();
     }
 

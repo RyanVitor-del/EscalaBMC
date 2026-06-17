@@ -146,6 +146,73 @@ internal sealed class MilitarDialog : Form
     }
 }
 
+internal sealed class UnidadeDialog : Form
+{
+    private readonly TextBox _nome = new();
+    private readonly TextBox _cidade = new();
+
+    public UnidadeCadastro? Unidade { get; private set; }
+
+    public UnidadeDialog(UnidadeCadastro? unidade = null)
+    {
+        Text = unidade is null ? "Cadastro de Unidade" : "Editar Unidade";
+        StartPosition = FormStartPosition.CenterParent;
+        FormBorderStyle = FormBorderStyle.FixedDialog;
+        MaximizeBox = false;
+        MinimizeBox = false;
+        Width = 620;
+        Height = 260;
+        Font = new Font("Segoe UI", 9F);
+
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), ColumnCount = 1, RowCount = 5 };
+        Controls.Add(root);
+
+        AddField(root, "Nome completo da unidade:", _nome);
+        AddField(root, "Cidade:", _cidade);
+        _nome.Text = unidade?.Nome ?? "";
+        _cidade.Text = unidade?.Cidade ?? "";
+
+        var footer = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(10) };
+        footer.Controls.Add(Button("Salvar", Save));
+        footer.Controls.Add(Button("Cancelar", () => DialogResult = DialogResult.Cancel));
+        Controls.Add(footer);
+    }
+
+    private void Save()
+    {
+        if (string.IsNullOrWhiteSpace(_nome.Text) || string.IsNullOrWhiteSpace(_cidade.Text))
+        {
+            MessageBox.Show(this, "Nome completo e cidade sao obrigatorios.", "Erro de validacao", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+
+        Unidade = new UnidadeCadastro
+        {
+            Nome = _nome.Text.Trim(),
+            Cidade = _cidade.Text.Trim(),
+        };
+        DialogResult = DialogResult.OK;
+        Close();
+    }
+
+    private static void AddField(TableLayoutPanel root, string label, Control control)
+    {
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        root.Controls.Add(new Label { Text = label, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9F, FontStyle.Bold) });
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
+        control.Dock = DockStyle.Top;
+        control.Margin = new Padding(4);
+        root.Controls.Add(control);
+    }
+
+    private static Button Button(string text, Action action)
+    {
+        var button = new Button { Text = text, Width = 110, Height = 30, Margin = new Padding(4) };
+        button.Click += (_, _) => action();
+        return button;
+    }
+}
+
 internal sealed class AusenciasManagerDialog : Form
 {
     private readonly Militar _militar;
